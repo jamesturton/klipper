@@ -23,5 +23,7 @@ void print_hex(uint32_t val);
 
 void *malloc(size_t size);
 
+int strcmp(s1, s2);
+
 int xt_sprintf(char * str, const char * format, ...);
 int xt_printf(const char *format, ...);

@@ -32,12 +32,12 @@ static inline int irq_free(unsigned int irq)
     return 0;
 }
 
-static inline void irq_enable(unsigned int irq)
+static inline void irq_enable_hifi(unsigned int irq)
 {
     // xthal_int_enable(1 << irq);
 }
 
-static inline void irq_disable(unsigned int irq)
+static inline void irq_disable_hifi(unsigned int irq)
 {
     // xthal_int_disable(1 << irq);
 }

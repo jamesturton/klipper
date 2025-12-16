@@ -79,7 +79,7 @@ uint32_t hal_msgbox_init(void)
 	hal_clock_put(clk);
 
 	irq_request(IRQ_MSGBOX, irq_msgbox_handler, NULL);
-	irq_enable(IRQ_MSGBOX);
+	irq_enable_hifi(IRQ_MSGBOX);
 
 	return 0;
 }

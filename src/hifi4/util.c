@@ -119,6 +119,15 @@ void *malloc(size_t size) {
     return ptr;
 }
 
+int strcmp(s1, s2)
+    register const char *s1, *s2;
+{
+    while (*s1 == *s2++)
+        if (*s1++ == 0)
+            return (0);
+    return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
+}
+
 int xt_sprintf(char * str, const char * format, ...)
 {
     return 0;

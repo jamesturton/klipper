@@ -3,7 +3,7 @@
 # Setup the toolchain
 CROSS_PREFIX=xtensa-hifi4-elf-
 
-# dirs-y += src/generic
+dirs-y += src/generic
 dirs-y += src/hifi4
 dirs-y += lib/hifi4
 dirs-y += lib/hifi4/rtos-hal
@@ -47,10 +47,11 @@ CFLAGS_klipper.elf += -Wl,--script src/hifi4/hifi4.ld -nostdlib
 # CFLAGS_klipper.elf += -Wl,--no-windowed
 # CFLAGS_klipper.elf += -Wl,-Map,$(OUT)/dsp.map
 
-ASFLAGS += --abi-call0
+ASFLAGS += -mabi=call0
 ASFLAGS += -Ilib/hifi4
-# ASFLAGS += -Ilib/hifi4/portable
-# ASFLAGS += -Ilib/hifi4/oemhead
+ASFLAGS += -Ilib/hifi4/rtos-hal/include
+ASFLAGS += -Ilib/hifi4/portable
+# ASFLAGS += -I../lib/hifi4/oemhead
 
 # LIBS = -L lib/hifi4/lib/ -lxtutil  -lhandler-reset -lc -lgloss -lhal -lm -lgcc -lc
 
@@ -62,14 +63,20 @@ ASFLAGS += -Ilib/hifi4
 # CFLAGS_klipper.elf += $(LIB_OBJS) $(LIBS)
 
 # Add source files
-src-y += hifi4/main.c hifi4/util.c hifi4/gpio.c # hifi4/timer.c hifi4/serial.c
+src-y += hifi4/main.c
+src-y += hifi4/util.c 
+src-y += hifi4/gpio.c
+src-y += hifi4/irq.c
+src-y += hifi4/timer.c
+# src-y += hifi4/serial.c
 # src-y += ../lib/hifi4/board-init.c
 
 # rtos-hal
 # src-y += ../lib/hifi4/rtos-hal/source/hal/common/dma_alloc.c
 src-y += ../lib/hifi4/rtos-hal/source/hal/gpio/hal_gpio.c
 src-y += ../lib/hifi4/rtos-hal/source/hal/gpio/sun8iw20/gpio-sun8iw20.c
-# src-y += ../lib/hifi4/rtos-hal/source/hal/timer/hal_timer.c
+src-y += ../lib/hifi4/rtos-hal/source/hal/timer/hal_timer.c
+src-y += ../lib/hifi4/rtos-hal/source/hal/timer/sunxi_timer.c
 src-y += ../lib/hifi4/rtos-hal/source/hal/uart/hal_uart.c
 
 # OSAL (Operating System Abstraction Layer) sources
@@ -84,12 +91,15 @@ src-y += ../lib/hifi4/rtos-hal/source/osal/hal_interrupt.c
 # src-y += ../lib/hifi4/rtos-hal/source/osal/hal_thread.c
 
 #generic
-# src-y += generic/crc16_ccitt.c generic/alloc.c
-# src-y += generic/timer_irq.c generic/serial_irq.c
+src-y += generic/timer_irq.c 
+# src-y += generic/crc16_ccitt.c 
+src-y += generic/alloc.c
+# src-y += generic/serial_irq.c
 
 OBJS_klipper.elf += $(OUT)lib/hifi4/crt1.o
 OBJS_klipper.elf += $(OUT)lib/hifi4/oemhead.o
+OBJS_klipper.elf += $(OUT)lib/hifi4/intlevel-set.o
 
 $(OUT)%.o: %.S
 	@echo "  Compiling $@"
-	$(Q)$(AS) $(ASFLAGS) -c $(PWD)/$< -o $@
+	$(Q)$(CC) $(ASFLAGS) -c $(PWD)/$< -o $@

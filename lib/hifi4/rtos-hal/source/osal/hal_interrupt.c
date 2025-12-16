@@ -28,12 +28,12 @@ void *free_irq(unsigned int irq, void *data)
 
 void enable_irq(unsigned int irq)
 {
-	irq_enable(irq);
+	irq_enable_hifi(irq);
 }
 
 void disable_irq(unsigned int irq)
 {
-	irq_disable(irq);
+	irq_disable_hifi(irq);
 }
 
 extern unsigned port_interruptNesting;	/* defined in port.c */

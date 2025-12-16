@@ -197,7 +197,7 @@ void sunxi_htimer_init(void)
     /* enable irq */
     for (i = 0; i < size; i++)
     {
-        irq_enable(timer[i].irq);
+        irq_enable_hifi(timer[i].irq);
     }
 
     g_htimer = timer;

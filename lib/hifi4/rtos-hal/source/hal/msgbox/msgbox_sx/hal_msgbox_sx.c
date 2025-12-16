@@ -56,10 +56,10 @@ struct messagebox *msgbox_init_sx(enum msgbox_direction dir)
 
 	if (dir == MSGBOX_DIRECTION_CPU) {
 		irq_request(SUNXI_DSP_IRQ_MSGBOX0_DSP, msg_irq_handler_sx, mb);
-		irq_enable(SUNXI_DSP_IRQ_MSGBOX0_DSP);
+		irq_enable_hifi(SUNXI_DSP_IRQ_MSGBOX0_DSP);
 	} else {
 		irq_request(SUNXI_DSP_IRQ_R_MSGBOX_DSP, msg_irq_handler_sx, mb);
-		irq_enable(SUNXI_DSP_IRQ_R_MSGBOX_DSP);
+		irq_enable_hifi(SUNXI_DSP_IRQ_R_MSGBOX_DSP);
 	}
 
 	return mb;
