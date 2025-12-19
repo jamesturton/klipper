@@ -130,7 +130,7 @@ void vTaskExitCritical(void);
 // Cleaner and preferred solution allows nested interrupts disabling and
 // restoring via local registers or stack. They can be called from interrupts
 // too.
-static inline unsigned portENTER_CRITICAL_NESTED() {
+static inline unsigned portENTER_CRITICAL_NESTED(void) {
   unsigned state = XTOS_SET_INTLEVEL(XCHAL_EXCM_LEVEL);
   portbenchmarkINTERRUPT_DISABLE();
   return state;

@@ -43,6 +43,42 @@ void *memset(void *dest, int c, size_t n){
     return dest;
 }
 
+void *memmove (void *dest, const void *src, size_t n){
+    volatile uint8_t *d = (volatile uint8_t*)dest;
+    volatile const uint8_t *s = (volatile const uint8_t*)src;
+    if (d < s)
+    {
+        while (n--)
+            *d++ = *s++;
+    }
+    else
+    {
+        volatile const uint8_t *lasts = s + (n-1);
+        volatile uint8_t *lastd = d + (n-1);
+        while (n--)
+            *lastd-- = *lasts--;
+    }
+
+    /* Memory barrier to ensure writes complete */
+    __asm__ __volatile__ ("" ::: "memory");
+
+    return dest;
+}
+
+void *memchr(void *src, int c, size_t n){
+    volatile uint8_t *s = (volatile uint8_t*)src;
+    uint8_t val = (uint8_t)c;
+
+  while (n--)
+    {
+      if (*s == val)
+        return (void *) s;
+      s++;
+    }
+
+  return NULL;
+}
+
 void set_bit(uint32_t addr, uint8_t bit){
   write_reg(addr, read_reg(addr) | (1<<bit));
 }
@@ -119,8 +155,12 @@ void *malloc(size_t size) {
     return ptr;
 }
 
-int strcmp(s1, s2)
-    register const char *s1, *s2;
+void
+free (void * free_p)
+{
+}
+
+int strcmp(const char *s1, const char *s2)
 {
     while (*s1 == *s2++)
         if (*s1++ == 0)
@@ -128,11 +168,13 @@ int strcmp(s1, s2)
     return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
 }
 
+// Todo: Implement this
 int xt_sprintf(char * str, const char * format, ...)
 {
     return 0;
 }
 
+// Todo: Implement this
 int xt_printf(const char *format, ...)
 {
     return 0;

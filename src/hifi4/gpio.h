@@ -2,6 +2,7 @@
 #define __GENERIC_GPIO_H
 
 #include <stdint.h> // uint8_t
+#include "compiler.h"
 #include <hal_gpio.h>
 
 struct gpio_out {

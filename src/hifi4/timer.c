@@ -4,6 +4,8 @@
 //
 // This file may be distributed under the terms of the GNU GPLv3 license.
 
+#include "timer.h"
+#include "compiler.h"
 #include <sunxi_hal_timer.h>
 #include "board/irq.h" // irq_disable
 #include "board/misc.h" // timer_read_time
@@ -16,7 +18,7 @@
 
 // Hardware timer IRQ handler - dispatch software timers
 void // __aligned(16)
-TIMER0_IRQHandler(void)
+TIMER0_IRQHandler(void *)
 {
     irq_disable();
     uint32_t next = timer_dispatch_many();

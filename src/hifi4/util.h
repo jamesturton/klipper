@@ -3,6 +3,8 @@
 
 void *memcpy(void *restrict dest, const void *restrict src, size_t n);
 void *memset(void *restrict dest, int c, size_t n);
+void *memmove(void *restrict dest, const void *restrict src, size_t n);
+void *memchr(void *__s, int __c, size_t __n);
 
 inline void write_reg(uint32_t addr, uint32_t val){
   *((volatile unsigned long *)(addr)) = val;
@@ -23,7 +25,7 @@ void print_hex(uint32_t val);
 
 void *malloc(size_t size);
 
-int strcmp(s1, s2);
+int strcmp(const char *s1, const char *s2);
 
 int xt_sprintf(char * str, const char * format, ...);
 int xt_printf(const char *format, ...);

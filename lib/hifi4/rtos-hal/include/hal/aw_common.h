@@ -1,7 +1,9 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x)       (sizeof(x) / sizeof((x)[0]))
+#endif
 
 #ifndef offsetof
 #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
@@ -14,9 +16,11 @@
  * @member:	the name of the member within the struct.
  *
  */
+#ifndef container_of
 #define container_of(ptr, type, member) ({			\
 	const typeof(((type *)0)->member) * __mptr = (ptr);	\
 	(type *)((char *)__mptr - offsetof(type, member)); })
+#endif
 
 #define UNUSED(var) {(void)var;}
 

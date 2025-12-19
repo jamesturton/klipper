@@ -403,6 +403,10 @@ typedef struct sunxi_hal_driver_usart
 #define POLLHUP         (0x08)
 #define POLLNVAL        (0x10)
 
+typedef void (*irq_func)(int32_t dev_id, uint8_t val);
+void hal_uart_irq(int32_t dev_id, uint8_t val);
+void hal_uart_register_irq(irq_func irq_func);
+
 sunxi_hal_version_t hal_uart_get_version(int32_t dev);
 sunxi_hal_uart_capabilities_t hal_uart_get_capabilities(int32_t dev);
 int32_t hal_uart_init(int32_t uart_port);

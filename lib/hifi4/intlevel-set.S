@@ -23,7 +23,6 @@
 
 #include <xtensa/coreasm.h>
 #include <xtensa/config/specreg.h>
-#include "xtos-internal.h"
 
 
 /***************************************************************************

@@ -19,7 +19,6 @@
 
 #include <hal_uart.h>
 #include <hal_interrupt.h>
-#include <hal_queue.h>
 #include <hal_clk.h>
 #include <hal_reset.h>
 #include <hal_gpio.h>
@@ -56,8 +55,6 @@ static sunxi_hal_version_t hal_uart_driver =
     SUNXI_HAL_UART_DRV_VERSION
 };
 static uart_priv_t g_uart_priv[UART_MAX];
-
-static hal_mailbox_t uart_mailbox[UART_MAX];
 
 static const uint32_t g_uart_baudrate_map[] =
 {
@@ -156,6 +153,21 @@ int32_t hal_uart_register_poll_wakeup(poll_wakeup_func poll_wakeup)
 }
 
 #endif
+
+static irq_func uart_drv_irq = NULL;
+
+void hal_uart_irq(int32_t dev_id, uint8_t val)
+{
+    if (uart_drv_irq)
+    {
+        uart_drv_irq(dev_id, val);
+    }
+}
+
+void hal_uart_register_irq(irq_func irq_func)
+{
+    uart_drv_irq = irq_func;
+}
 
 static bool uart_port_is_valid(uart_port_t uart_port)
 {
@@ -400,7 +412,7 @@ static uint32_t uart_handle_rx(uart_port_t uart_port, uint32_t lsr)
         if (lsr & UART_LSR_DR)
         {
             ch = hal_readb(uart_base + UART_RBR);
-            hal_mailbox_send((hal_mailbox_t)uart_mailbox[uart_port], ch);
+            hal_uart_irq(uart_port, ch);
 #ifdef CONFIG_SUNXI_UART_SUPPORT_POLL
             hal_uart_poll_wakeup(uart_port, POLLIN);
 #endif
@@ -663,13 +675,6 @@ int32_t hal_uart_init(int32_t uart_port)
 
     }
 
-    uart_mailbox[uart_port] = hal_mailbox_create(uart_name, UART_FIFO_SIZE);
-    if (uart_mailbox[uart_port] == NULL)
-    {
-        UART_ERR("create mailbox fail\n");
-        return HAL_UART_STATUS_ERROR;
-    }
-
     /* set uart IER */
     uart_enable_irq(uart_port, UART_IER_RDI | UART_IER_RLSI);
 
@@ -790,53 +795,12 @@ int32_t hal_uart_receive_polling(int32_t dev, uint8_t *data, uint32_t num)
 
 int32_t hal_uart_receive(int32_t dev, uint8_t *data, uint32_t num)
 {
-    unsigned int data_rev;
-    int i = 0;
-    int32_t ret = -1, rev_count = 0;
-
-    hal_assert(data != NULL);
-
-    for (i = 0; i < num; i++)
-    {
-        ret = hal_mailbox_recv((hal_mailbox_t)uart_mailbox[dev], &data_rev, -1);
-        if (ret == 0)
-        {
-            rev_count++;
-	    *(data + i) = (uint8_t)data_rev;
-        }
-        else
-        {
-            UART_ERR("receive error");
-            break;
-        }
-    }
-
-    return rev_count;
+    return 0;
 }
 
 int32_t hal_uart_receive_no_block(int32_t dev, uint8_t *data, uint32_t num, int32_t timeout)
 {
-    unsigned int data_rev;
-    int i = 0;
-    int32_t ret = -1, rev_count = 0;
-
-    hal_assert(data != NULL);
-
-    for (i = 0; i < num; i++)
-    {
-        ret = hal_mailbox_recv((hal_mailbox_t)uart_mailbox[dev], &data_rev, timeout);
-        if (ret == 0)
-        {
-            rev_count++;
-			*(data + i) = (uint8_t)data_rev;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    return rev_count;
+    return 0;
 }
 
 

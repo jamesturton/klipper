@@ -55,9 +55,9 @@
 #include <stdlib.h>
 #include <xtensa/config/core.h>
 
-#include "xtensa_rtos.h"
+// #include "xtensa_rtos.h"
 #include "FreeRTOS.h"
-#include "task.h"
+// #include "task.h"
 
 /* Defined in portasm.h */
 extern void _frxt_tick_timer_init(void);

@@ -21,4 +21,20 @@ config CLOCK_FREQ
     int
     default 20000000
 
+choice
+    prompt "Communication Interface"
+    config HIFI4_SERIAL_UART0
+        bool "UART0"
+        select SERIAL
+    config HIFI4_SERIAL_UART1
+        bool "UART1"
+        select SERIAL
+    config HIFI4_SERIAL_UART2
+        bool "UART2"
+        select SERIAL
+    config HIFI4_SERIAL_UART3
+        bool "UART3"
+        select SERIAL
+endchoice
+
 endif
