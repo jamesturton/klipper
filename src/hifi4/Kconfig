@@ -19,7 +19,7 @@ config SERIAL
 
 config CLOCK_FREQ
     int
-    default 20000000
+    default 24000000
 
 choice
     prompt "Communication Interface"

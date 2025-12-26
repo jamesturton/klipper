@@ -6,12 +6,12 @@
 
  * DISCLAIMER
  * THIRD PARTY LICENCES MAY BE REQUIRED TO IMPLEMENT THE SOLUTION/PRODUCT.
- * IF YOU NEED TO INTEGRATE THIRD PARTY¡¯S TECHNOLOGY (SONY, DTS, DOLBY, AVS OR MPEGLA, ETC.)
- * IN ALLWINNERS¡¯SDK OR PRODUCTS, YOU SHALL BE SOLELY RESPONSIBLE TO OBTAIN
+ * IF YOU NEED TO INTEGRATE THIRD PARTYï¿½ï¿½S TECHNOLOGY (SONY, DTS, DOLBY, AVS OR MPEGLA, ETC.)
+ * IN ALLWINNERSï¿½ï¿½SDK OR PRODUCTS, YOU SHALL BE SOLELY RESPONSIBLE TO OBTAIN
  * ALL APPROPRIATELY REQUIRED THIRD PARTY LICENCES.
  * ALLWINNER SHALL HAVE NO WARRANTY, INDEMNITY OR OTHER OBLIGATIONS WITH RESPECT TO MATTERS
  * COVERED UNDER ANY REQUIRED THIRD PARTY LICENSE.
- * YOU ARE SOLELY RESPONSIBLE FOR YOUR USAGE OF THIRD PARTY¡¯S TECHNOLOGY.
+ * YOU ARE SOLELY RESPONSIBLE FOR YOUR USAGE OF THIRD PARTYï¿½ï¿½S TECHNOLOGY.
 
 
  * THIS SOFTWARE IS PROVIDED BY ALLWINNER"AS IS" AND TO THE MAXIMUM EXTENT
@@ -264,21 +264,6 @@ static void gpadc_enable(uint32_t reg_base)
     writel(reg_val, (unsigned long)(reg_base) + GP_CTRL_REG);
 }
 
-/* enable gpadc function, true:enable, false:disable */
-static void gpadc_disable(uint32_t reg_base)
-{
-    uint32_t reg_val = 0;
-
-    reg_val = readl((unsigned long)(reg_base) + GP_CTRL_REG);
-    reg_val &= ~GP_ADC_EN;
-    writel(reg_val, (unsigned long)(reg_base) + GP_CTRL_REG);
-}
-
-static uint32_t gpadc_read_channel_irq_enable(uint32_t reg_base)
-{
-    return readl((unsigned long)(reg_base) + GP_DATA_INTC_REG);
-}
-
 static uint32_t gpadc_read_channel_lowirq_enable(uint32_t reg_base)
 {
     return readl((unsigned long)(reg_base) + GP_DATAL_INTC_REG);
@@ -335,10 +320,9 @@ static irqreturn_t gpadc_handler(int irq, void *dev)
     hal_gpadc_t *gpadc = (hal_gpadc_t *)dev;
 
     uint32_t reg_val, reg_low, reg_high;
-    uint32_t reg_enable, reg_enable_low, reg_enable_high;
+    uint32_t reg_enable_low, reg_enable_high;
     uint32_t i, data = 0;
 
-    reg_enable = gpadc_read_channel_irq_enable(gpadc->reg_base);
     reg_enable_low = gpadc_read_channel_lowirq_enable(gpadc->reg_base);
     reg_enable_high = gpadc_read_channel_highirq_enable(gpadc->reg_base);
 
@@ -394,8 +378,6 @@ hal_gpadc_status_t hal_gpadc_register_callback(hal_gpadc_channel_t channal,
 
 hal_gpadc_status_t hal_gpadc_channel_init(hal_gpadc_channel_t channal)
 {
-    hal_gpadc_t *gpadc = &hal_gpadc;
-
     if (gpadc_channel_check_valid(channal))
     {
         return GPADC_CHANNEL_ERROR;
@@ -412,8 +394,6 @@ hal_gpadc_status_t hal_gpadc_channel_init(hal_gpadc_channel_t channal)
 
 hal_gpadc_status_t hal_gpadc_channel_exit(hal_gpadc_channel_t channal)
 {
-    hal_gpadc_t *gpadc = &hal_gpadc;
-
     if (gpadc_channel_check_valid(channal))
     {
         return GPADC_CHANNEL_ERROR;
@@ -465,7 +445,7 @@ int hal_gpadc_init(void)
     GPADC_INFO("gpadc set sample rate");
     gpadc_sample_rate_set(gpadc->reg_base, OSC_24MHZ, gpadc->sample_rate);
 
-    if (request_irq(gpadc->irq_num, gpadc_handler, IRQF_NO_SUSPEND, "gpadc", gpadc))
+    if (request_irq(gpadc->irq_num, gpadc_handler, 0, "gpadc", gpadc))
     {
         return GPADC_IRQ_ERROR;
     }

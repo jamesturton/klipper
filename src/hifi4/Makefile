@@ -13,14 +13,18 @@ dirs-y += lib/hifi4/rtos-hal/source/hal/gpio/sun8iw20
 dirs-y += lib/hifi4/rtos-hal/source/hal/uart
 dirs-y += lib/hifi4/rtos-hal/source/hal/timer
 dirs-y += lib/hifi4/rtos-hal/source/hal/ccmu/sunxi-ng
+dirs-y += lib/hifi4/rtos-hal/source/hal/gpadc
 dirs-y += lib/hifi4/rtos-hal/source/osal
 
 # RTOS HAL configuration
 CFLAGS += -DCONFIG_KERNEL_FREERTOS
 CFLAGS += -DCONFIG_CORE_DSP0
 CFLAGS += -DCONFIG_ARCH_SUN8IW20
+CFLAGS += -DCONFIG_SOC_SUN20IW1
 CFLAGS += -DCONFIG_LOG_LEVEL=0
 CFLAGS += -DCONFIG_DRIVERS_SUNXI_CCU
+CFLAGS += -D__SPLIT__intlevel
+CFLAGS += -D__SPLIT__vpri_int_enable
 
 CFLAGS += -O2 -mlongcalls -mtext-section-literals -mabi=call0
 
@@ -44,6 +48,7 @@ ASFLAGS += -Wa,--abi-call0
 ASFLAGS += -Ilib/hifi4
 ASFLAGS += -Ilib/hifi4/rtos-hal/include
 ASFLAGS += -Ilib/hifi4/portable
+ASFLAGS += -DXCHAL_HAVE_INTERRUPTS
 
 # Add source files
 src-y += hifi4/main.c
@@ -52,7 +57,6 @@ src-y += hifi4/gpio.c
 src-y += hifi4/irq.c
 src-y += hifi4/timer.c
 src-y += hifi4/serial.c
-src-y += ../lib/hifi4/portable/port.c
 
 # rtos-hal
 src-y += ../lib/hifi4/rtos-hal/source/hal/gpio/hal_gpio.c
@@ -64,10 +68,16 @@ src-y += ../lib/hifi4/rtos-hal/source/hal/ccmu/hal_reset.c
 src-y += ../lib/hifi4/rtos-hal/source/hal/ccmu/hal_clk.c
 src-y += ../lib/hifi4/rtos-hal/source/hal/ccmu/sunxi-ng/ccu.c
 src-y += ../lib/hifi4/rtos-hal/source/hal/ccmu/sunxi-ng/clk.c
+src-y += ../lib/hifi4/rtos-hal/source/hal/gpadc/hal_gpadc.c
 
 # osal
 src-y += ../lib/hifi4/rtos-hal/source/osal/hal_mem.c
 src-y += ../lib/hifi4/rtos-hal/source/osal/hal_interrupt.c
+
+# portable
+src-y += ../lib/hifi4/portable/port.c
+src-y += ../lib/hifi4/portable/xtensa_intr.c
+src-y += ../lib/hifi4/portable/interrupts.c
 
 # generic
 src-y += generic/timer_irq.c
@@ -79,6 +89,7 @@ OBJS_klipper.elf += $(OUT)lib/hifi4/crt1.o
 OBJS_klipper.elf += $(OUT)lib/hifi4/oemhead.o
 OBJS_klipper.elf += $(OUT)lib/hifi4/intlevel-set.o
 OBJS_klipper.elf += $(OUT)lib/hifi4/setjmp.o
+OBJS_klipper.elf += $(OUT)lib/hifi4/portable/xtensa_intr_asm.o
 
 $(OUT)%.o: %.S
 	@echo "  Compiling $@"

@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-// #include "xtensa_api.h"
+#include "xtensa_api.h"
 // #include "xtensa/hal.h"
 
 #define RINTC_IRQ_MASK 0xffff0000
@@ -21,25 +21,24 @@ typedef void (*interrupt_handler_t)(void *data);
 /* IRQ request/free functions */
 static inline int irq_request(unsigned int irq, interrupt_handler_t handler, void *dev)
 {
-    // xt_handler old = xt_set_interrupt_handler(irq, (xt_handler)handler, dev);
-    // return (old != NULL) ? 0 : -1;
-    return 0;
+    xt_handler old = xt_set_interrupt_handler(irq, (xt_handler)handler, dev);
+    return (old != NULL) ? 0 : -1; 
 }
 
 static inline int irq_free(unsigned int irq)
 {
-    // xt_set_interrupt_handler(irq, NULL, NULL);
+    xt_set_interrupt_handler(irq, NULL, NULL);
     return 0;
 }
 
 static inline void irq_enable_hifi(unsigned int irq)
 {
-    // xthal_int_enable(1 << irq);
+    xthal_int_enable(1 << irq);
 }
 
 static inline void irq_disable_hifi(unsigned int irq)
 {
-    // xthal_int_disable(1 << irq);
+    xthal_int_disable(1 << irq);
 }
 
 #ifdef __cplusplus

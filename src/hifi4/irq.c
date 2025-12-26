@@ -37,6 +37,9 @@ void irq_restore(irqstatus_t flag)
 // Atomically enable hardware interrupts and sleep processor until next irq
 void irq_wait(void)
 {
+    hal_interrupt_enable();
+    asm("nop\n    nop\n    nop" : : : "memory");
+    hal_interrupt_disable();
 }
 
 // Check if an interrupt is active (used only on architectures that do

@@ -5,6 +5,10 @@
 // This file may be distributed under the terms of the GNU GPLv3 license.
 
 #include "gpio.h" // gpio_out_write
+#include "generic/irq.h" // irq_save()
+#include "generic/misc.h"
+#include "command.h"
+#include "sched.h" // sched_shutdown
 
 struct gpio_out gpio_out_setup(uint8_t pin, uint8_t val) {
     hal_gpio_init();
@@ -24,7 +28,9 @@ void gpio_out_toggle_noirq(struct gpio_out g) {
     hal_gpio_set_data(g.pin, state);
 }
 void gpio_out_toggle(struct gpio_out g) {
+    irqstatus_t flag = irq_save();
     gpio_out_toggle_noirq(g);
+    irq_restore(flag);
 }
 void gpio_out_write(struct gpio_out g, uint8_t val) {
     gpio_data_t state = val ? GPIO_DATA_HIGH : GPIO_DATA_LOW;
@@ -51,16 +57,53 @@ struct gpio_pwm gpio_pwm_setup(uint8_t pin, uint32_t cycle_time, uint8_t val) {
 }
 void gpio_pwm_write(struct gpio_pwm g, uint8_t val) {
 }
+
+static uint32_t channel_data [3];
+static uint8_t channel_valid [3];
+int gpadc_irq_callback_0(uint32_t dada_type, uint32_t data)
+{
+    channel_data[0] = data;
+    channel_valid[0] = 0;
+    return 0;
+}
+int gpadc_irq_callback_1(uint32_t dada_type, uint32_t data)
+{
+    channel_data[1] = data;
+    channel_valid[1] = 0;
+    return 0;
+}
+int gpadc_irq_callback_2(uint32_t dada_type, uint32_t data)
+{
+    channel_data[2] = data;
+    channel_valid[2] = 0;
+    return 0;
+}
 struct gpio_adc gpio_adc_setup(uint8_t pin) {
-    return (struct gpio_adc){.pin=pin};
+    // Valid ADC pins PB13-PB15
+    if (pin < (32+13) || pin > (32+13+3))
+        shutdown("Not a valid ADC pin");
+
+    uint8_t chan = pin - (32+13);
+    hal_gpadc_init();
+    hal_gpadc_channel_init(pin);
+    if (chan == 0)
+        hal_gpadc_register_callback(pin, gpadc_irq_callback_0);
+    else if (chan == 1)
+        hal_gpadc_register_callback(pin, gpadc_irq_callback_1);
+    else
+        hal_gpadc_register_callback(pin, gpadc_irq_callback_2);
+    return (struct gpio_adc){.chan=pin};
 }
 uint32_t gpio_adc_sample(struct gpio_adc g) {
-    return 0;
+    return channel_valid[g.chan];
 }
 uint16_t gpio_adc_read(struct gpio_adc g) {
-    return 0;
+    channel_valid[g.chan] = timer_from_us(20);
+    return channel_data[g.chan];
 }
 void gpio_adc_cancel_sample(struct gpio_adc g) {
+    hal_gpadc_channel_exit(g.chan);
+    hal_gpadc_deinit();
 }
 
 struct spi_config
