@@ -3,7 +3,7 @@
 # Copyright (C) 2026  James Turton (james.turton@gmx.com)
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import logging, math, collections
+import logging, math, collections, threading
 
 np = None  # delay NumPy import until configuration time
 
@@ -88,7 +88,7 @@ class MultiSensorCollector:
 
     def get_synchronized_samples(self, all_samples):
         """
-        Synchronize samples from 4 sensors within sync_window
+        Synchronize samples from 4 sensors with linear interpolation
         Returns list of 4 sample arrays with aligned timestamps
         """
         if not all_samples or len(all_samples) != 4:
@@ -106,12 +106,54 @@ class MultiSensorCollector:
         if common_start >= common_end:
             return [[], [], [], []]
 
-        # Extract samples within common time window
+        # Calculate sample rate (use highest rate among sensors)
+        sample_counts = [len(s) for s in all_samples]
+        max_samples = max(sample_counts)
+
+        # If sensors are well-aligned (all have similar sample counts), skip interpolation
+        if max_samples - min(sample_counts) <= 2:
+            # Simple extraction without interpolation
+            synced = []
+            for sensor_samples in all_samples:
+                in_window = [s for s in sensor_samples
+                            if common_start <= s[0] <= common_end]
+                synced.append(in_window)
+            return synced
+
+        # Need interpolation for better alignment
+        # Create common time grid based on highest sample rate
+        dt = (common_end - common_start) / max_samples
+        common_times = [common_start + i * dt for i in range(max_samples)]
+
+        # Interpolate each sensor to common time grid
         synced = []
         for sensor_samples in all_samples:
-            in_window = [s for s in sensor_samples
-                        if common_start <= s[0] <= common_end]
-            synced.append(in_window)
+            if len(sensor_samples) < 2:
+                # Not enough samples to interpolate, use as-is
+                synced.append(sensor_samples)
+                continue
+
+            times = [s[0] for s in sensor_samples]
+            forces = [s[1] for s in sensor_samples]
+
+            # Use numpy interpolation if available, otherwise linear search
+            if np is not None:
+                interp_forces = np.interp(common_times, times, forces)
+                synced_sensor = [[t, float(f)] for t, f in zip(common_times, interp_forces)]
+            else:
+                # Simple linear interpolation fallback
+                synced_sensor = []
+                for t in common_times:
+                    # Find bracketing samples
+                    for i in range(len(times) - 1):
+                        if times[i] <= t <= times[i+1]:
+                            # Linear interpolation
+                            ratio = (t - times[i]) / (times[i+1] - times[i])
+                            f = forces[i] + ratio * (forces[i+1] - forces[i])
+                            synced_sensor.append([t, f])
+                            break
+
+            synced.append(synced_sensor)
 
         return synced
 
@@ -211,6 +253,370 @@ class SensorFusion:
             fused.append([avg_time, avg_force])
 
         return fused
+
+    @staticmethod
+    def robust_average_fusion(samples_list):
+        """
+        Robust average with outlier rejection using median
+        Useful if one sensor gives bad reading
+        """
+        if not samples_list or len(samples_list) != 4:
+            return []
+
+        min_len = min(len(s) for s in samples_list)
+        if min_len == 0:
+            return []
+
+        fused = []
+        for i in range(min_len):
+            avg_time = sum(s[i][0] for s in samples_list) / 4.0
+
+            # Get forces from all 4 sensors
+            forces = [s[i][1] for s in samples_list]
+
+            # Use median of middle two values for outlier robustness
+            sorted_forces = sorted(forces)
+            median_force = (sorted_forces[1] + sorted_forces[2]) / 2.0
+
+            fused.append([avg_time, median_force])
+
+        return fused
+
+    @staticmethod
+    def dynamic_weighted_fusion(samples_list, nozzle_pos, bed_corners):
+        """
+        Enhanced weighted fusion with dynamic weighting based on nozzle position
+        Gives more weight to sensors closer to the nozzle
+        """
+        if not samples_list or len(samples_list) != 4:
+            return []
+
+        min_len = min(len(s) for s in samples_list)
+        if min_len == 0:
+            return []
+
+        # Calculate inverse distance weights
+        weights = SensorFusion.calculate_inverse_distance_weights(
+            nozzle_pos, bed_corners)
+
+        fused = []
+        for i in range(min_len):
+            avg_time = sum(s[i][0] for s in samples_list) / 4.0
+
+            # Weighted fusion
+            weighted_force = sum(
+                s[i][1] * w for s, w in zip(samples_list, weights)
+            )
+
+            fused.append([avg_time, weighted_force])
+
+        return fused
+
+
+# Virtual endstop for multi-sensor force-based triggering
+class MultiSensorProbeEndstop:
+    """
+    Acts as a virtual endstop that triggers when fused force exceeds threshold.
+    Uses real-time callbacks from all 4 load cells for continuous monitoring.
+    """
+    def __init__(self, probe_multi):
+        self._probe_multi = probe_multi
+        self._printer = probe_multi._printer
+        self._reactor = self._printer.get_reactor()
+
+        # Trigger state
+        self._triggered = False
+        self._trigger_time = 0.0
+        self._trigger_force = 0.0
+        self._sample_lock = threading.Lock()
+
+        # Sample buffers (one per sensor)
+        self._sensor_samples = [[], [], [], []]
+        self._last_fusion_time = 0.0
+
+        # Callbacks and collection state
+        self._callbacks = []
+        self._is_collecting = False
+
+        # Diagnostics
+        self._sample_counts = [0, 0, 0, 0]
+        self._error_counts = [0, 0, 0, 0]
+        self._force_history = []
+
+        # Safety
+        self._start_time = 0.0
+        self._timeout = 30.0  # 30 second max probe time
+
+        # Stepper management (required for homing subsystem)
+        self._steppers = []
+
+        # Trigger completion for drip_move synchronization
+        self._trigger_completion = None
+
+    def home_start(self, print_time, sample_time, sample_count, rest_time,
+                   triggered=True):
+        """Called by homing subsystem when probing starts"""
+        with self._sample_lock:
+            # Reset state
+            self._triggered = False
+            self._trigger_time = 0.0
+            self._trigger_force = 0.0
+            self._sensor_samples = [[], [], [], []]
+            self._last_fusion_time = 0.0
+            self._sample_counts = [0, 0, 0, 0]
+            self._error_counts = [0, 0, 0, 0]
+            self._force_history = []
+            self._start_time = self._reactor.monotonic()
+
+            # Create completion object for drip_move synchronization
+            self._trigger_completion = self._reactor.completion()
+
+            # Register callbacks on all 4 load cells
+            self._callbacks = []
+            for i, lc in enumerate(self._probe_multi._load_cells):
+                callback = self._make_sensor_callback(i)
+                lc.add_client(callback)
+                self._callbacks.append(callback)
+
+            self._is_collecting = True
+
+        logging.info("MultiSensorProbeEndstop: Started collecting from %d sensors"
+                     % len(self._probe_multi._load_cells))
+
+        # Return completion object so drip_move can monitor it
+        return self._trigger_completion
+
+    def _make_sensor_callback(self, sensor_idx):
+        """Create a callback function for a specific sensor"""
+        def callback(msg):
+            if not self._is_collecting:
+                return False  # Stop collecting
+
+            # Track if we triggered during this callback
+            triggered = False
+
+            with self._sample_lock:
+                if self._triggered:
+                    return False  # Already triggered, stop
+
+                # Extract samples and errors
+                samples = msg.get('data', [])
+                errors = msg.get('errors', 0)
+                overflows = msg.get('overflows', 0)
+
+                # Count samples and errors
+                self._sample_counts[sensor_idx] += len(samples)
+                if errors or overflows:
+                    self._error_counts[sensor_idx] += 1
+                    logging.warning("Sensor %d (%s) error: %d errors, %d overflows"
+                                  % (sensor_idx,
+                                     self._probe_multi._sensor_names[sensor_idx],
+                                     errors, overflows))
+                    # Continue despite errors (other sensors may be OK)
+
+                # Only process if we have samples
+                if len(samples) == 0:
+                    return True  # Continue collecting
+
+                # DEBUG: Log first few samples
+                if self._sample_counts[sensor_idx] <= 10:
+                    logging.info("Sensor %d received %d samples: %s"
+                                % (sensor_idx, len(samples), samples[:2]))
+
+                # Add samples to buffer (keep last 0.5 seconds)
+                self._sensor_samples[sensor_idx].extend(samples)
+
+                # Trim old samples
+                cutoff_time = samples[-1][0] - 0.5  # Keep last 0.5s
+                self._sensor_samples[sensor_idx] = [
+                    s for s in self._sensor_samples[sensor_idx]
+                    if s[0] >= cutoff_time
+                ]
+
+                # Check trigger condition
+                try:
+                    self._check_trigger_condition()
+                    triggered = self._triggered
+                except Exception as e:
+                    logging.error("Error checking trigger: %s" % str(e))
+
+            # Release lock BEFORE completing to avoid deadlock
+            # The completion may cause home_wait() to be called, which needs the lock
+            if triggered and self._trigger_completion is not None:
+                self._trigger_completion.complete(1)
+
+            return not triggered  # Continue if not triggered
+
+        return callback
+
+    def _check_trigger_condition(self):
+        """Fuse latest samples and check if trigger threshold exceeded"""
+        # Need samples from all sensors
+        if any(len(s) == 0 for s in self._sensor_samples):
+            # DEBUG: Log which sensors have no samples
+            if len(self._force_history) == 0:
+                no_samples = [i for i, s in enumerate(self._sensor_samples) if len(s) == 0]
+                if no_samples:
+                    logging.info("Waiting for samples from sensors: %s (have: %s)"
+                                % (no_samples, [len(s) for s in self._sensor_samples]))
+            return
+
+        # Get the latest common sample time across all sensors
+        latest_times = [s[-1][0] for s in self._sensor_samples]
+        min_latest_time = min(latest_times)
+
+        # Extract recent samples within sync window
+        sync_window = self._probe_multi._sync_window
+        samples_to_fuse = []
+
+        for sensor_samples in self._sensor_samples:
+            recent = [s for s in sensor_samples
+                     if s[0] >= min_latest_time - sync_window]
+            if len(recent) == 0:
+                if len(self._force_history) < 5:
+                    logging.info("Sync fail: sensor has no recent samples within window %.4fs"
+                                % sync_window)
+                return  # Not enough synchronized samples
+            samples_to_fuse.append(recent)
+
+        # DEBUG: Log fusion attempt
+        if len(self._force_history) < 5:
+            logging.info("Attempting fusion with samples: %s"
+                        % [len(s) for s in samples_to_fuse])
+
+        # Apply fusion algorithm
+        fused = self._probe_multi._fuse_samples(samples_to_fuse)
+
+        if not fused or len(fused) == 0:
+            if len(self._force_history) < 5:
+                logging.info("Fusion returned empty! samples_to_fuse lens: %s"
+                            % [len(s) for s in samples_to_fuse])
+            return
+
+        # Get latest fused force
+        latest_time, fused_force = fused[-1][0], fused[-1][1]
+        self._last_fusion_time = latest_time
+
+        # Track force history for diagnostics
+        self._force_history.append((latest_time, fused_force))
+
+        # Log periodically (and always log first 10)
+        if len(self._force_history) <= 10 or len(self._force_history) % 50 == 0:
+            logging.info("Probe force: %.2fg @ t=%.3f (trigger: %.1fg, samples: %s)"
+                         % (fused_force, latest_time,
+                            self._probe_multi._trigger_force,
+                            self._sample_counts))
+
+        # Check safety limit first
+        if abs(fused_force) >= self._probe_multi._force_safety_limit:
+            self._triggered = True
+            self._trigger_time = latest_time
+            self._trigger_force = fused_force
+            self._is_collecting = False
+            logging.error("SAFETY LIMIT EXCEEDED: %.1fg >= %.1fg at t=%.4f"
+                         % (abs(fused_force),
+                            self._probe_multi._force_safety_limit,
+                            latest_time))
+
+            # Note: completion will be called by callback after lock is released
+
+            self._printer.invoke_shutdown(
+                "Load cell force exceeded safety limit: %.1fg >= %.1fg"
+                % (abs(fused_force), self._probe_multi._force_safety_limit))
+            return
+
+        # Check normal trigger threshold
+        if abs(fused_force) >= self._probe_multi._trigger_force:
+            self._triggered = True
+            self._trigger_time = latest_time
+            self._trigger_force = fused_force
+            self._is_collecting = False
+            logging.info("TRIGGERED: Force=%.1fg at t=%.4f (samples: %s)"
+                        % (fused_force, latest_time, self._sample_counts))
+
+            # Note: completion will be called by callback after lock is released
+
+    def home_wait(self, home_end_time):
+        """Wait for trigger or timeout"""
+        # By the time this is called, the trigger should have already happened
+        # (since drip_move returned after completion fired)
+        logging.info("home_wait called")
+
+        # Check triggered status (need to copy trigger_time while holding lock)
+        trigger_time = 0.0
+        with self._sample_lock:
+            if self._triggered:
+                trigger_time = self._trigger_time
+
+        # If triggered, stop collecting and return (do this outside lock to avoid deadlock)
+        if trigger_time > 0.0:
+            self.stop_collecting()
+            logging.info("home_wait: Returning trigger time %.4f" % trigger_time)
+            return trigger_time
+
+        # If not triggered yet, something went wrong
+        self.stop_collecting()
+        logging.error("home_wait: Not triggered after drip_move completed!")
+
+        # Check if timeout
+        now = self._reactor.monotonic()
+        if now - self._start_time > self._timeout:
+            raise self._printer.command_error(
+                "Probe timeout after %.1fs - check trigger_force (%dg) or bed position"
+                % (self._timeout, self._probe_multi._trigger_force))
+
+        # Otherwise, return 0 to indicate no trigger
+        logging.warning("Probe did not trigger")
+        return 0.0
+
+    def query_endstop(self, print_time):
+        """Query current endstop state"""
+        with self._sample_lock:
+            return self._triggered
+
+    def get_mcu(self):
+        """Return MCU for homing subsystem compatibility"""
+        return self._probe_multi._load_cells[0].get_sensor().get_mcu()
+
+    def add_stepper(self, stepper):
+        """Add a stepper to be monitored during probing"""
+        self._steppers.append(stepper)
+
+    def get_steppers(self):
+        """Return steppers being monitored"""
+        return list(self._steppers)
+
+    def stop_collecting(self):
+        """Stop all callbacks and cleanup"""
+        with self._sample_lock:
+            self._is_collecting = False
+
+        # Remove callbacks from load cells
+        for i, lc in enumerate(self._probe_multi._load_cells):
+            try:
+                lc.remove_client(self._callbacks[i])
+            except:
+                pass  # Callback may have already stopped
+
+        logging.info("MultiSensorProbeEndstop: Stopped collecting. Final samples: %s, errors: %s"
+                     % (self._sample_counts, self._error_counts))
+
+    def get_final_force(self):
+        """Return the force value that triggered the probe"""
+        with self._sample_lock:
+            return self._trigger_force
+
+    def get_diagnostics(self):
+        """Return diagnostic information"""
+        with self._sample_lock:
+            return {
+                'sample_counts': self._sample_counts.copy(),
+                'error_counts': self._error_counts.copy(),
+                'force_history': self._force_history[-100:],  # Last 100 samples
+                'triggered': self._triggered,
+                'trigger_time': self._trigger_time,
+                'trigger_force': self._trigger_force,
+            }
 
 
 # Multi-sensor probe configuration and management
@@ -370,13 +776,34 @@ class LoadCellProbeMulti:
         """
         Apply fusion algorithm to synchronized samples
         all_samples: list of 4 sample arrays from collectors
+        These samples are already within the sync window, so we can fuse directly
         Returns: fused sample array [[time, force], ...]
         """
-        # Synchronize timestamps first
-        synced = self._collector.get_synchronized_samples(all_samples)
+        # DEBUG: Log first few fusions
+        if not hasattr(self, '_fusion_debug_count'):
+            self._fusion_debug_count = 0
 
-        if not synced or any(len(s) == 0 for s in synced):
+        if self._fusion_debug_count < 3:
+            logging.info("_fuse_samples called with %d arrays, lens: %s"
+                        % (len(all_samples), [len(s) for s in all_samples]))
+            self._fusion_debug_count += 1
+
+        # Samples are already within sync window, so just use them directly
+        # Take the minimum number of samples to ensure all sensors contribute
+        min_len = min(len(s) for s in all_samples)
+        if min_len == 0:
+            if self._fusion_debug_count <= 3:
+                logging.info("One or more sensors has no samples")
             return []
+
+        # Use the most recent samples from each sensor
+        synced = []
+        for sensor_samples in all_samples:
+            # Take the last min_len samples
+            synced.append(sensor_samples[-min_len:])
+
+        if self._fusion_debug_count <= 3:
+            logging.info("Using %d most recent samples from each sensor" % min_len)
 
         # Apply fusion based on mode
         if self._fusion_mode == 'average':
@@ -418,89 +845,61 @@ class LoadCellProbeMulti:
 
     def _probing_move(self, gcmd):
         """
-        Execute a probing move with multi-sensor fusion
-        Uses iterative descent with host-side trigger checking
+        Execute continuous probing with multi-sensor fusion
+        Uses callback-based real-time trigger detection
         """
-        # Check health
+        # 1. Health check
         self._check_sensor_health()
 
-        # Tare all sensors
+        # 2. Tare all sensors
         toolhead = self._printer.lookup_object('toolhead')
-        print_time = toolhead.get_last_move_time()
-
-        # Get tare samples (4 x 60Hz cycles = ~67ms)
         sps = self._load_cells[0].get_sensor().get_samples_per_second()
         tare_samples = max(2, math.ceil((4.0 / 60.0) * sps))
         tare_values = self._tare_all_sensors(tare_samples)
-
         logging.info("Tared all sensors: %s" % tare_values)
 
-        # Get probing parameters
-        start_pos = toolhead.get_position()
-        speed = self._param_helper.get_probe_params(gcmd)['probe_speed']
+        # 3. Create multi-sensor endstop wrapper
+        probe_endstop = MultiSensorProbeEndstop(self)
+
+        # 4. Add Z steppers to the endstop (required for homing subsystem)
+        kin = toolhead.get_kinematics()
+        for stepper in kin.get_steppers():
+            if stepper.is_active_axis('z'):
+                probe_endstop.add_stepper(stepper)
+
+        # 5. Get probe parameters
+        params = self._param_helper.get_probe_params(gcmd)
+        speed = params['probe_speed']
         z_min = probe.lookup_minimum_z(self._config)
-        trigger_force = self._trigger_force
 
-        # Iterative descent with force checking
-        # Descend in small steps, checking force after each step
-        step_size = 0.5  # 0.5mm steps
-        current_z = start_pos[2]
-        reactor = self._printer.get_reactor()
+        # 6. Setup target position (descend to minimum Z)
+        pos = toolhead.get_position()
+        pos[2] = z_min
 
-        # Start collecting samples
-        self._collector.start_collecting(min_time=toolhead.get_last_move_time())
+        # 7. Perform continuous probing move
+        phoming = self._printer.lookup_object('homing')
+        try:
+            epos = phoming.probing_move(probe_endstop, pos, speed)
+        except Exception as e:
+            # Cleanup on error
+            probe_endstop.stop_collecting()
+            logging.error("Probing move failed: %s" % str(e))
+            raise
 
-        triggered = False
-        trigger_pos = None
-        max_iterations = int((start_pos[2] - z_min) / step_size) + 10
-
-        for i in range(max_iterations):
-            if current_z <= z_min:
-                break
-
-            # Move down one step
-            current_z -= step_size
-            pos = list(start_pos)
-            pos[2] = current_z
-            toolhead.manual_move(pos, speed)
-            toolhead.wait_moves()
-
-            # Collect samples and check fusion
-            print_time = toolhead.get_last_move_time()
-            all_samples, all_errors = self._collector.collect_until(print_time)
-
-            # Check for sensor errors
-            for sensor_idx, errors in enumerate(all_errors):
-                if errors:
-                    raise self._printer.command_error(
-                        "Sensor '%s' error during probing: %d errors, %d overflows"
-                        % (self._sensor_names[sensor_idx], errors[0], errors[1]))
-
-            # Fuse samples and check trigger
-            fused = self._fuse_samples(all_samples)
-            if fused:
-                # Check if trigger threshold exceeded
-                current_force = abs(fused[-1][1])  # Last sample force
-                logging.debug("Z=%.3f, Force=%.1fg" % (current_z, current_force))
-
-                if current_force >= trigger_force:
-                    triggered = True
-                    trigger_pos = toolhead.get_position()
-                    logging.info("Triggered at Z=%.3f, Force=%.1fg"
-                               % (current_z, current_force))
-                    break
-
-            # Small delay to avoid overloading
-            reactor.pause(reactor.monotonic() + 0.01)
-
-        # Stop collecting
-        self._collector.stop_collecting()
-
-        if not triggered:
+        # 8. Verify trigger occurred
+        if epos[2] <= z_min + 0.1:
+            probe_endstop.stop_collecting()
             raise self._printer.command_error(
-                "Probe did not trigger - bed not reached or trigger_force too high")
+                "Probe did not trigger - check trigger_force (%dg) setting or bed position"
+                % self._trigger_force)
 
-        return trigger_pos
+        # 9. Log results
+        final_force = probe_endstop.get_final_force()
+        diagnostics = probe_endstop.get_diagnostics()
+        logging.info("Probe triggered at Z=%.4f, Force=%.1fg (samples: %s)"
+                    % (epos[2], final_force, diagnostics['sample_counts']))
+
+        return epos
 
     # Probe interface methods
     def get_probe_params(self, gcmd=None):
