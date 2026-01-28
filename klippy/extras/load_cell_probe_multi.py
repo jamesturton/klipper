@@ -344,7 +344,8 @@ class MultiSensorProbeEndstop:
         self._force_history = []
 
         # Safety
-        self._start_time = 0.0
+        self._start_time = 0.0  # Reactor monotonic time
+        self._start_print_time = 0.0  # MCU print time
         self._timeout = 30.0  # 30 second max probe time
 
         # Stepper management (required for homing subsystem)
@@ -367,6 +368,7 @@ class MultiSensorProbeEndstop:
             self._error_counts = [0, 0, 0, 0]
             self._force_history = []
             self._start_time = self._reactor.monotonic()
+            self._start_print_time = print_time
 
             # Create completion object for drip_move synchronization
             self._trigger_completion = self._reactor.completion()
@@ -527,6 +529,29 @@ class MultiSensorProbeEndstop:
 
         # Check normal trigger threshold
         if abs(fused_force) >= self._probe_multi._trigger_force:
+            # Check if triggered too quickly (indicates nozzle was already touching)
+            time_since_start = latest_time - self._start_print_time
+
+            # Only check for early trigger if time is positive (sample is after start)
+            # Negative times indicate samples from before probe started (ignore these)
+            if 0.0 < time_since_start < 0.2:  # Triggered 0-200ms after starting
+                self._triggered = True
+                self._trigger_time = latest_time
+                self._trigger_force = fused_force
+                self._is_collecting = False
+                logging.error("EARLY TRIGGER: Force=%.1fg at print_time=%.4f (%.3fs after start)"
+                            % (fused_force, latest_time, time_since_start))
+                logging.error("This suggests the nozzle was already touching the bed when probing started.")
+                logging.error("Check that probe lifts properly between samples (lift_speed, retract_dist).")
+                # Let the trigger happen anyway so homing subsystem can detect it
+                return
+
+            # Ignore triggers from samples with timestamps before probe started
+            if time_since_start < 0.0:
+                logging.debug("Ignoring trigger from pre-start sample (t=%.4f, start=%.4f)"
+                            % (latest_time, self._start_print_time))
+                return
+
             self._triggered = True
             self._trigger_time = latest_time
             self._trigger_force = fused_force
@@ -853,6 +878,12 @@ class LoadCellProbeMulti:
 
         # 2. Tare all sensors
         toolhead = self._printer.lookup_object('toolhead')
+
+        # Wait for any Z movement to complete and vibrations to settle
+        toolhead.wait_moves()
+        reactor = self._printer.get_reactor()
+        reactor.pause(reactor.monotonic() + 0.1)  # 100ms settling time
+
         sps = self._load_cells[0].get_sensor().get_samples_per_second()
         tare_samples = max(2, math.ceil((4.0 / 60.0) * sps))
         tare_values = self._tare_all_sensors(tare_samples)
