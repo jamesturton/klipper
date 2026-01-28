@@ -5238,6 +5238,129 @@ sensor_type:
 #   See the "[probe]" section for a description of the above parameters.
 ```
 
+### [load_cell_probe_multi]
+
+Multi-Sensor Load Cell Probe. Uses 4 load cells (one at each bed corner) with
+sensor fusion for improved bed leveling accuracy. This combines the
+functionality of a [probe] with 4 [load_cell] sensors.
+
+```
+[load_cell_probe_multi]
+sensors:
+#   Comma-separated list of exactly 4 load_cell names to use for probing.
+#   Order: front_left, front_right, rear_left, rear_right
+#   Example: sensors: bed_front_left, bed_front_right, bed_rear_left, bed_rear_right
+#   This parameter must be provided.
+bed_corners:
+#   The X,Y coordinates of the 4 bed corners where the load cells are mounted.
+#   Format: X1,Y1, X2,Y2, X3,Y3, X4,Y4
+#   Order: front_left, front_right, rear_left, rear_right
+#   Example: bed_corners: 0,0, 220,0, 0,220, 220,220
+#   This parameter must be provided.
+#fusion_mode: average
+#   Sensor fusion algorithm to use. Options:
+#   - average: Simple average of all 4 sensors (default, recommended)
+#   - weighted: Position-weighted based on nozzle location
+#   - tilt_compensated: Compensates for bed tilt
+#   The default is 'average'.
+#min_sensors: 4
+#   Minimum number of sensors required for probing. Must be 2-4.
+#   The default is 4.
+#allow_degraded_mode: False
+#   If True, probing will continue if one sensor fails (assuming min_sensors
+#   is met). If False, any sensor failure aborts probing.
+#   The default is False.
+#sync_window: 0.010
+#   Time window (in seconds) for timestamp synchronization between sensors.
+#   Samples from all 4 sensors within this window are fused together.
+#   The default is 0.010 (10 milliseconds).
+#fusion_weights: 0.25, 0.25, 0.25, 0.25
+#   Optional fixed fusion weights for 'weighted' mode. Must sum to 1.0.
+#   If not specified in weighted mode, weights are calculated dynamically
+#   based on nozzle position.
+#trigger_force: 75
+#   The fused force (in grams) that will trigger the probe.
+#   The default is 75g.
+#force_safety_limit: 2000
+#   Maximum force (in grams) allowed on any individual sensor.
+#   The default is 2000g (2Kg).
+#z_offset:
+#speed:
+#samples:
+#sample_retract_dist:
+#lift_speed:
+#samples_result:
+#samples_tolerance:
+#samples_tolerance_retries:
+#activate_gcode:
+#deactivate_gcode:
+#   See the "[probe]" section for a description of the above parameters.
+```
+
+#### Multi-Sensor Commands
+
+The following commands are available when load_cell_probe_multi is enabled:
+
+- `LOAD_CELL_MULTI_TARE`: Tare all 4 load cells simultaneously. Should be run
+  before probing to zero out the sensors.
+- `LOAD_CELL_MULTI_STATUS`: Display the current status of all 4 sensors,
+  including force readings, calibration state, and fusion mode.
+
+#### Multi-Sensor Configuration Example
+
+```
+# Define 4 HX711 sensors (one per bed corner)
+[hx711 bed_front_left]
+dout_pin: PA1
+sclk_pin: PA2
+sample_rate: 80
+
+[load_cell bed_front_left]
+sensor: hx711 bed_front_left
+counts_per_gram: 432.5
+reference_tare_counts: 125000
+
+[hx711 bed_front_right]
+dout_pin: PA3
+sclk_pin: PA4
+sample_rate: 80
+
+[load_cell bed_front_right]
+sensor: hx711 bed_front_right
+counts_per_gram: 428.7
+reference_tare_counts: 123500
+
+[hx711 bed_rear_left]
+dout_pin: PA5
+sclk_pin: PA6
+sample_rate: 80
+
+[load_cell bed_rear_left]
+sensor: hx711 bed_rear_left
+counts_per_gram: 435.2
+reference_tare_counts: 126200
+
+[hx711 bed_rear_right]
+dout_pin: PA7
+sclk_pin: PA8
+sample_rate: 80
+
+[load_cell bed_rear_right]
+sensor: hx711 bed_rear_right
+counts_per_gram: 430.1
+reference_tare_counts: 124800
+
+# Multi-sensor probe configuration
+[load_cell_probe_multi]
+sensors: bed_front_left, bed_front_right, bed_rear_left, bed_rear_right
+bed_corners: 0,0, 220,0, 0,220, 220,220
+fusion_mode: average
+trigger_force: 75
+z_offset: 0.0
+speed: 5.0
+samples: 3
+```
+
 ## Board specific hardware support
 
 ### [sx1509]
